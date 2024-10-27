@@ -1,0 +1,112 @@
+# 此 GitHub Actions 工作流程用于将 Docker 镜像推送到阿里云、Docker Hub 和 GitHub Packages。  
+name: Docker Image Push to Aliyun / Docker / GitHub  
+  
+on:  
+  # 触发条件为推送到 main 分支或对 main 分支发起的 pull request。  
+  push:  
+    branches: ["main"]  
+  pull_request:  
+    branches: ["main"]  
+  
+env:  
+  # 设置阿里云容器注册服务的地址。  
+  REGISTRY_ALIBABACLOUD: registry.cn-hongkong.aliyuncs.com  
+  
+jobs:  
+  build:  
+    # 使用最新的 Ubuntu 环境运行。  
+    runs-on: ubuntu-latest  
+  
+    permissions:  
+      # 设置工作流程需要的权限。  
+      contents: write  
+      packages: write  
+      id-token: write  
+  
+    steps:  
+      - name: Checkout repository  
+        uses: actions/checkout@v4
+      
+      - name: 配置自增tag  
+        id: tag_version  
+        # 使用 GitHub Action 为代码库生成自增的标签。  
+        uses: mathieudutour/github-tag-action@v6.2  
+        with:  
+          github_token: ${{ secrets.GITHUB_TOKEN }}  
+          
+      - name: 创建Release  
+        # 使用 GitHub Action 创建一个新的 Release。  
+        uses: softprops/action-gh-release@v2  
+        with:  
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}  
+  
+      - name: 将GitHub存储库Owner转换到小写  
+        id: vars  
+        # 将 GitHub 仓库的名称和所有者转换为小写并存储在环境变量中。  
+        run: |  
+          echo "REPO_OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV  
+          
+      - name: Build Docker 镜像  
+        id: docker_build  
+        # 构建 Docker 镜像但不推送。  
+        uses: docker/build-push-action@v6  
+        with:  
+          push: false  
+          tags: ${{ github.event.repository.name }}:latest  
+  
+      - name: 登录到Docker Hub  
+        # 登录到 Docker Hub。  
+        uses: docker/login-action@v3  
+        with:  
+          username: ${{ secrets.DOCKERHUB_USERNAME }}  
+          password: ${{ secrets.DOCKERHUB_TOKEN }}  
+  
+      - name: Push到Docker Hub  
+        # 将 Docker 镜像推送到 Docker Hub。  
+        uses: docker/build-push-action@v6  
+        with:  
+          push: true  
+          tags: |  
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:${{ steps.tag_version.outputs.new_tag }}  
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:latest  
+  
+      - name: 更新 Docker Hub 描述
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+        
+      - name: 登录到GitHub Packages  
+        # 登录到 GitHub Packages。  
+        uses: docker/login-action@v3  
+        with:  
+          username: ${{ github.actor }}  
+          password: ${{ secrets.GITHUB_TOKEN }}  
+          registry: ghcr.io  
+  
+      - name: Push到GitHub Packages  
+        # 将 Docker 镜像推送到 GitHub Packages。  
+        uses: docker/build-push-action@v6  
+        with:  
+          push: true  
+          tags: |  
+            ghcr.io/${{ env.REPO_OWNER }}/${{ github.event.repository.name }}:${{ steps.tag_version.outputs.new_tag }}  
+            ghcr.io/${{ env.REPO_OWNER }}/${{ github.event.repository.name }}:latest  
+  
+      - name: 登录到Aliyun ACR  
+        # 登录到阿里云容器注册服务（ACR）。  
+        uses: docker/login-action@v3  
+        with:  
+          username: ${{ secrets.ALIBABACLOUD_ACR_USERNAME }}  
+          password: ${{ secrets.ALIBABACLOUD_ACR_PASSWORD }}  
+          registry: ${{ env.REGISTRY_ALIBABACLOUD }}  
+  
+      - name: Push到Aliyun ACR  
+        # 将 Docker 镜像推送到阿里云 ACR。  
+        uses: docker/build-push-action@v6  
+        with:  
+          push: true  
+          tags: |  
+            ${{ env.REGISTRY_ALIBABACLOUD }}/${{ env.REPO_OWNER }}/${{ github.event.repository.name }}:${{ steps.tag_version.outputs.new_tag }}  
+            ${{ env.REGISTRY_ALIBABACLOUD }}/${{ env.REPO_OWNER }}/${{ github.event.repository.name }}:latest  
