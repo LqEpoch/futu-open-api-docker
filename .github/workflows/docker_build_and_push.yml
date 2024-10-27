@@ -10,7 +10,7 @@ on:
   
 env:  
   # 设置阿里云容器注册服务的地址。  
-  REGISTRY_ALIBABACLOUD: registry.cn-hongkong.aliyuncs.com  
+  REGISTRY_ALIBABACLOUD: registry.cn-hangzhou.aliyuncs.com  
   
 jobs:  
   build:  
